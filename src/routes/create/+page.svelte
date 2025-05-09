@@ -115,7 +115,8 @@
 
 										// Добавляем теги в поле, если оно пустое
 										if (!tagBadges.length) {
-											tagBadges = significantTags;
+											// tagBadges = significantTags;
+											tagBadges = await processTags(significantTags);
 										}
 									} else {
 										console.error('Ошибка при получении предсказаний:', await response.text());
@@ -197,6 +198,33 @@
 			});
 		}
 	});
+
+	async function processTags(rawTags: string[]): Promise<string[]> {
+		try {
+			const response = await fetch('http://localhost:8080/api/tags/process', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${localStorage.getItem('authToken')}`
+				},
+				body: JSON.stringify({
+					tags: rawTags
+				})
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				console.log(data);
+				return data.tags;
+			} else {
+				console.error('Ошибка при обработке тегов:', await response.text());
+				return rawTags;
+			}
+		} catch (error) {
+			console.error('Ошибка при отправке тегов:', error);
+			return rawTags;
+		}
+	}
 
 	async function handleSubmit() {
 		if (!myDropzone || !uploadedFile) {
