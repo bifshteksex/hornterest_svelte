@@ -26,13 +26,13 @@
 	let isAuthenticated = false;
 	let logoutButton: HTMLButtonElement | null = null;
 
+	let searchInput: HTMLInputElement;
+	let searchOverlay: HTMLDivElement;
+	let searchDropdown: HTMLDivElement;
+
 	onMount(() => {
 		// Проверяем наличие токена при монтировании компонента
 		isAuthenticated = localStorage.getItem('authToken') !== null;
-
-		const searchInput = document.getElementById('searchInput');
-		const searchOverlay = document.getElementById('searchOverlay');
-		const searchDropdown = document.getElementById('searchDropdown');
 
 		if (searchInput && searchOverlay && searchDropdown) {
 			searchInput.addEventListener('focus', () => {
@@ -73,7 +73,6 @@
 		}
 
 		if (!query.trim()) {
-			searchResults = [];
 			suggestedTags = [];
 			isSearching = false;
 			return;
@@ -82,42 +81,39 @@
 		searchTimeout = setTimeout(async () => {
 			isSearching = true;
 			try {
+				// Используем новый эндпоинт для поиска тегов
 				const response = await fetch(
-					`http://localhost:8080/api/search?q=${encodeURIComponent(query)}`
+					`http://localhost:8080/api/tags/search?q=${encodeURIComponent(query)}`
 				);
 				if (!response.ok) {
 					throw new Error('Search failed');
 				}
 				const data = await response.json();
-				console.log(data);
-
-				// Собираем уникальные теги из результатов поиска и фильтруем их
-				const uniqueTags = new Map<string, Tag>();
-				data.results.forEach((result: SearchResult) => {
-					result.tags.forEach((tag) => {
-						const titleRu = tag.title_ru || '';
-						const titleEn = tag.title_en || '';
-						// Сравниваем в нижнем регистре, но сохраняем оригинальное написание тега
-						if (
-							(titleRu.toLowerCase().includes(query.toLowerCase()) ||
-								titleEn.toLowerCase().includes(query.toLowerCase())) &&
-							!uniqueTags.has(titleRu || titleEn)
-						) {
-							uniqueTags.set(titleRu || titleEn, tag);
-						}
-					});
-				});
-
-				suggestedTags = Array.from(uniqueTags.values());
-				searchResults = data.results;
+				suggestedTags = data.tags;
 			} catch (error) {
 				console.error('Search error:', error);
-				searchResults = [];
 				suggestedTags = [];
 			} finally {
 				isSearching = false;
 			}
 		}, 300);
+	}
+
+	async function handleSearchSubmit(event: Event) {
+		event.preventDefault();
+		if (searchQuery.trim()) {
+			window.location.href = `/?q=${encodeURIComponent(searchQuery.trim())}`;
+
+			hideSearch();
+		}
+	}
+
+	async function hideSearch() {
+		if (searchOverlay && searchDropdown && searchInput) {
+			searchOverlay.classList.add('hidden');
+			searchDropdown.classList.add('hidden');
+			searchInput.blur();
+		}
 	}
 </script>
 
@@ -148,43 +144,11 @@
 
 		<div class="flex items-center gap-x-5">
 			<!-- Search Input -->
-			<div class="relative w-full">
-				<div class="pointer-events-none absolute inset-y-0 start-0 z-20 flex items-center ps-3.5">
-					<svg
-						class="size-4 shrink-0 text-gray-400 dark:text-white/60"
-						xmlns="http://www.w3.org/2000/svg"
-						width="24"
-						height="24"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					>
-						<circle cx="11" cy="11" r="8" />
-						<path d="m21 21-4.3-4.3" />
-					</svg>
-				</div>
-				<input
-					bind:value={searchQuery}
-					on:input={handleSearch}
-					id="searchInput"
-					type="text"
-					class="block w-full rounded-lg border-gray-700 bg-transparent py-2 pe-16 ps-10 text-sm focus:border-gray-600 focus:outline-none focus:ring-0 disabled:pointer-events-none disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-400 dark:placeholder:text-neutral-400 dark:focus:border-neutral-600"
-					placeholder="Поиск"
-				/>
-				<div
-					class="pointer-events-none absolute inset-y-0 end-0 z-20 flex hidden items-center pe-1"
-				>
-					<button
-						type="button"
-						class="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-gray-500 hover:text-blue-600 focus:text-blue-600 focus:outline-none dark:text-neutral-500 dark:hover:text-blue-500 dark:focus:text-blue-500"
-						aria-label="Close"
-					>
-						<span class="sr-only">Close</span>
+			<form class="w-full" on:submit={handleSearchSubmit}>
+				<div class="relative w-full">
+					<div class="pointer-events-none absolute inset-y-0 start-0 z-20 flex items-center ps-3.5">
 						<svg
-							class="size-4 shrink-0"
+							class="size-4 shrink-0 text-gray-400 dark:text-white/60"
 							xmlns="http://www.w3.org/2000/svg"
 							width="24"
 							height="24"
@@ -195,30 +159,49 @@
 							stroke-linecap="round"
 							stroke-linejoin="round"
 						>
-							<circle cx="12" cy="12" r="10" />
-							<path d="m15 9-6 6" />
-							<path d="m9 9 6 6" />
+							<circle cx="11" cy="11" r="8" />
+							<path d="m21 21-4.3-4.3" />
 						</svg>
-					</button>
-				</div>
-				<div
-					class="pointer-events-none absolute inset-y-0 end-0 z-20 flex items-center pe-3 text-gray-400"
-				>
-					<svg
-						class="size-3 shrink-0 text-gray-400 dark:text-white/60"
-						xmlns="http://www.w3.org/2000/svg"
-						width="24"
-						height="24"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
+					</div>
+					<input
+						bind:this={searchInput}
+						bind:value={searchQuery}
+						on:input={handleSearch}
+						id="searchInput"
+						type="text"
+						class="block w-full rounded-lg border-gray-700 bg-transparent py-2 pe-16 ps-10 text-sm focus:border-gray-600 focus:outline-none focus:ring-0 disabled:pointer-events-none disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-400 dark:placeholder:text-neutral-400 dark:focus:border-neutral-600"
+						placeholder="Поиск"
+					/>
+					<div
+						class="pointer-events-none absolute inset-y-0 end-0 z-20 flex hidden items-center pe-1"
 					>
-						<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
-					</svg>
-					<span class="mx-1">
+						<button
+							type="button"
+							class="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-gray-500 hover:text-blue-600 focus:text-blue-600 focus:outline-none dark:text-neutral-500 dark:hover:text-blue-500 dark:focus:text-blue-500"
+							aria-label="Close"
+						>
+							<span class="sr-only">Close</span>
+							<svg
+								class="size-4 shrink-0"
+								xmlns="http://www.w3.org/2000/svg"
+								width="24"
+								height="24"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<circle cx="12" cy="12" r="10" />
+								<path d="m15 9-6 6" />
+								<path d="m9 9 6 6" />
+							</svg>
+						</button>
+					</div>
+					<div
+						class="pointer-events-none absolute inset-y-0 end-0 z-20 flex items-center pe-3 text-gray-400"
+					>
 						<svg
 							class="size-3 shrink-0 text-gray-400 dark:text-white/60"
 							xmlns="http://www.w3.org/2000/svg"
@@ -231,13 +214,29 @@
 							stroke-linecap="round"
 							stroke-linejoin="round"
 						>
-							<path d="M5 12h14" />
-							<path d="M12 5v14" />
+							<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
 						</svg>
-					</span>
-					<span class="text-xs">/</span>
+						<span class="mx-1">
+							<svg
+								class="size-3 shrink-0 text-gray-400 dark:text-white/60"
+								xmlns="http://www.w3.org/2000/svg"
+								width="24"
+								height="24"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M5 12h14" />
+								<path d="M12 5v14" />
+							</svg>
+						</span>
+						<span class="text-xs">/</span>
+					</div>
 				</div>
-			</div>
+			</form>
 			<!-- End Search Input -->
 
 			{#if isAuthenticated}
@@ -481,6 +480,7 @@
 
 <!-- Backdrop (затемнение фона) -->
 <div
+	bind:this={searchOverlay}
 	id="searchOverlay"
 	class="fixed inset-0 z-40 hidden bg-black/60 backdrop-blur-sm"
 	aria-hidden="true"
@@ -488,6 +488,7 @@
 
 <!-- Dropdown окно для поиска -->
 <div
+	bind:this={searchDropdown}
 	id="searchDropdown"
 	class="min-w-2xl absolute left-1/2 top-20 z-50 hidden -translate-x-1/2 rounded-lg bg-white p-5 shadow-lg dark:bg-neutral-950"
 >
@@ -502,7 +503,8 @@
 			<li class="rounded-xl font-semibold text-neutral-200 transition-colors hover:bg-neutral-900">
 				<a
 					class="flex h-full w-full items-center gap-x-2 px-3 py-2"
-					href="?q={encodeURIComponent(searchQuery)}"
+					href="/?q={encodeURIComponent(searchQuery)}"
+					on:click={hideSearch}
 					data-sveltekit-preload-data="off"
 				>
 					{searchQuery}
@@ -516,7 +518,8 @@
 					>
 						<a
 							class="flex h-full w-full items-center gap-x-2 px-3 py-2"
-							href="?tag={encodeURIComponent(tag.title_ru || tag.title_en)}"
+							href="/?q={encodeURIComponent(tag.title_ru || tag.title_en)}"
+							on:click={hideSearch}
 							data-sveltekit-preload-data="off"
 						>
 							<svg
