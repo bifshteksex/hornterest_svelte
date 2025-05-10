@@ -10,6 +10,11 @@
 		duration?: number;
 	}
 
+	interface TagInfo {
+		title: string;
+		count: number;
+	}
+
 	let dropzoneInput: HTMLDivElement | null = null;
 	let dropzoneElement: HTMLDivElement | null = null;
 	let previewElement: HTMLDivElement | null = null;
@@ -17,9 +22,9 @@
 	let title: string = '';
 	let description: string = '';
 	let link: string = '';
-	let tags: string = '';
 
-	let tagBadges: string[] = [];
+	let tagBadges: TagInfo[] = [];
+	let noProcessedTags: string[] = [];
 
 	let allowComments: boolean = true;
 	let isAiGenerated: boolean = false;
@@ -108,6 +113,7 @@
 										// Берем только теги с вероятностью выше 0.5 и сортируем по убыванию
 										const significantTags = Object.entries(predictions)
 											.filter(([tag, probability]) => (probability as number) > 0.5)
+											.filter(([tag]) => !tag.startsWith('rating:'))
 											.sort(
 												([tagA, valueA], [tagB, valueB]) => (valueB as number) - (valueA as number)
 											)
@@ -115,7 +121,7 @@
 
 										// Добавляем теги в поле, если оно пустое
 										if (!tagBadges.length) {
-											// tagBadges = significantTags;
+											noProcessedTags = significantTags;
 											tagBadges = await processTags(significantTags);
 										}
 									} else {
@@ -169,6 +175,7 @@
 
 						if (tagBadges.length) {
 							tagBadges = [];
+							noProcessedTags = [];
 						}
 					});
 
@@ -199,7 +206,7 @@
 		}
 	});
 
-	async function processTags(rawTags: string[]): Promise<string[]> {
+	async function processTags(rawTags: string[]): Promise<TagInfo[]> {
 		try {
 			const response = await fetch('http://localhost:8080/api/tags/process', {
 				method: 'POST',
@@ -218,11 +225,11 @@
 				return data.tags;
 			} else {
 				console.error('Ошибка при обработке тегов:', await response.text());
-				return rawTags;
+				return rawTags.map((tag) => ({ title: tag, count: 0 }));
 			}
 		} catch (error) {
 			console.error('Ошибка при отправке тегов:', error);
-			return rawTags;
+			return rawTags.map((tag) => ({ title: tag, count: 0 }));
 		}
 	}
 
@@ -236,7 +243,7 @@
 		formData.append('title', title);
 		formData.append('description', description);
 		formData.append('link', link);
-		formData.append('tags', tags);
+		formData.append('tags', JSON.stringify(noProcessedTags));
 		formData.append('allowComments', allowComments.toString());
 		formData.append('isAiGenerated', isAiGenerated.toString());
 		formData.append('media', uploadedFile);
@@ -272,7 +279,8 @@
 				title = '';
 				description = '';
 				link = '';
-				tags = '';
+				tagBadges = [];
+				noProcessedTags = [];
 				allowComments = true;
 				isAiGenerated = false;
 				myDropzone?.removeAllFiles();
@@ -450,7 +458,6 @@ dark:focus:ring-neutral-600
                     [&:not(:placeholder-shown)]:pb-2
                     [&:not(:placeholder-shown)]:pt-6"
 								placeholder="Теги"
-								bind:value={tags}
 							/>
 							<label
 								for="hs-floating-input-tags"
@@ -466,42 +473,50 @@ dark:focus:ring-neutral-600
 								>Добавить тег</label
 							>
 						</div>
-						<!-- 
-						{#if tagBadges.length > 0} -->
-						<div class="flex flex-wrap gap-2">
-							{#each tagBadges as badge}
-								<div
-									class="inline-flex flex-nowrap items-center gap-x-1 rounded-lg border border-gray-200 bg-white p-1.5 dark:border-neutral-700 dark:bg-neutral-800"
-								>
-									<div class="rounded-lg bg-neutral-700 px-2 py-1 text-sm text-neutral-400">
-										99+
-									</div>
-									<div class="whitespace-nowrap text-sm font-medium text-gray-800 dark:text-white">
-										{badge}
-									</div>
+						{#if tagBadges.length > 0}
+							<div class="flex flex-wrap gap-2">
+								{#each tagBadges as badge, index}
 									<div
-										class="focus:outline-hidden ms-2.5 inline-flex size-5 cursor-pointer items-center justify-center rounded-full bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-2 focus:ring-gray-400 dark:bg-neutral-700/50 dark:text-neutral-400 dark:hover:bg-neutral-700"
+										class="inline-flex flex-nowrap items-center gap-x-1 rounded-lg border border-gray-200 bg-white p-1.5 dark:border-neutral-700 dark:bg-neutral-800"
 									>
-										<svg
-											class="size-3 shrink-0"
-											xmlns="http://www.w3.org/2000/svg"
-											width="24"
-											height="24"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"
-											stroke-linecap="round"
-											stroke-linejoin="round"
+										<div class="rounded-lg bg-neutral-700 px-2 py-1 text-sm text-neutral-400">
+											{badge.count >= 99 ? '99+' : badge.count}
+										</div>
+										<div
+											class="whitespace-nowrap text-sm font-medium text-gray-800 dark:text-white"
 										>
-											<path d="M18 6 6 18"></path>
-											<path d="m6 6 12 12"></path>
-										</svg>
+											{badge.title}
+										</div>
+										<button
+											type="button"
+											class="focus:outline-hidden ms-2.5 inline-flex size-5 cursor-pointer items-center justify-center rounded-full bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-2 focus:ring-gray-400 dark:bg-neutral-700/50 dark:text-neutral-400 dark:hover:bg-neutral-700"
+											on:click={() => {
+												tagBadges = tagBadges.filter((_, i) => i !== index);
+												noProcessedTags = noProcessedTags.filter((_, i) => i !== index);
+											}}
+											aria-label={`Удалить тег ${badge.title}`}
+										>
+											<svg
+												class="size-3 shrink-0"
+												xmlns="http://www.w3.org/2000/svg"
+												width="24"
+												height="24"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												aria-hidden="true"
+											>
+												<path d="M18 6 6 18"></path>
+												<path d="m6 6 12 12"></path>
+											</svg>
+										</button>
 									</div>
-								</div>
-							{/each}
-						</div>
-						<!-- {/if} -->
+								{/each}
+							</div>
+						{/if}
 					</div>
 
 					<div class="flex items-center">

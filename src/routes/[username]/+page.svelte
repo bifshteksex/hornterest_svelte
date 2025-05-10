@@ -3,86 +3,44 @@
 	import { page } from '$app/stores';
 	import { user } from '../../stores/user';
 	import { formatDuration } from '$lib/utils';
+	import MasonryGrid from '$lib/components/MasonryGrid.svelte';
+	import type { Pin } from '$lib/types/pin';
 
 	export let data; // Данные, переданные из +page.server.ts
 
-	interface Pin {
+	interface ProfileData {
 		id: number;
-		path: string;
-		description: string;
-		user_id: number;
-		original: string | null;
-		comment: boolean;
-		ai: boolean;
-		type: string | null;
-		title: string | null | undefined;
-		width: number | null;
-		height: number | null;
-		duration: number | null;
+		nickname: string;
+		name?: string;
+		surname?: string;
+		description?: string;
+		verification: boolean;
+		followers: number;
+		following: number;
 	}
 
 	let isOwnProfile = false;
-	let profileData: any = null;
+	let profileData: ProfileData | null = null;
 	let userPins: Pin[] = []; // Массив для хранения пинов пользователя
 	let loadingPins = false; // Статус загрузки пинов
 	let errorPins: Error | null = null; // Ошибка при загрузке пинов
 	let pageNumber = 1; // Текущая страница для пагинации
 	const limit = 20; // Количество пинов на странице
 	let hasMore = true; // Есть ли еще пины для загрузки
-	let columnCount = 2; // Минимальное количество колонок
-	let columns: Pin[][] = Array.from({ length: columnCount }, () => []); // Инициализируем columns
-	let newPinIds: Set<number> = new Set();
 	let activeTab: 'created' | 'saved' = 'created';
+	let isInitialized = false;
 
 	let isSubscribed = false;
 	let loading = false;
 	let error = null;
 
-	function updateColumnCount() {
-		const width = window.innerWidth;
-		let newColumnCount = 2;
-		if (width >= 1280) {
-			newColumnCount = 6;
-		} else if (width >= 768) {
-			newColumnCount = 4;
-		} else if (width >= 640) {
-			newColumnCount = 3;
-		}
-
-		if (newColumnCount !== columnCount) {
-			columnCount = newColumnCount;
-			distributePinsToColumns(userPins);
-			columns = [...columns];
-		}
-	}
-
-	function distributePinsToColumns(currentPins: Pin[]) {
-		columns = Array.from({ length: columnCount }, () => []);
-		currentPins.forEach((pin, index) => {
-			columns[index % columnCount].push(pin);
-		});
-	}
-
-	function appendNewPinsToColumns(newPins: Pin[]) {
-		newPins.forEach((pin) => {
-			let shortestColumnIndex = 0;
-			let minLength = columns[0].length;
-			for (let i = 1; i < columnCount; i++) {
-				if (columns[i].length < minLength) {
-					minLength = columns[i].length;
-					shortestColumnIndex = i;
-				}
-			}
-			columns[shortestColumnIndex].push(pin);
-			newPinIds.add(pin.id);
-		});
-		columns = [...columns];
-	}
-
 	async function loadPins(username: string, tab: 'created' | 'saved', page: number) {
-		if (loadingPins || !hasMore) return;
+		console.log('🔄 Starting loadPins:', { username, tab, page, loadingPins, hasMore });
+		if (loadingPins || !hasMore) {
+			console.log('❌ Skipping loadPins:', { loadingPins, hasMore });
+			return;
+		}
 		loadingPins = true;
-		errorPins = null;
 		const endpoint = tab === 'created' ? 'pins' : 'saved';
 		const apiUrl = `http://localhost:8080/api/users/${username}/${endpoint}?page=${page}&limit=${limit}`;
 
@@ -95,23 +53,27 @@
 			const fetchedPins: Pin[] = await response.json();
 			console.log(`Fetched ${tab} pins:`, fetchedPins);
 
-			if (fetchedPins != null && fetchedPins.length > 0) {
-				const uniqueNewPins = fetchedPins.filter(
-					(newPin) => !userPins.some((existingPin) => existingPin.id === newPin.id)
-				);
-				userPins = [...userPins, ...uniqueNewPins].sort((a, b) => a.id - b.id);
-				appendNewPinsToColumns(uniqueNewPins);
-			}
+			if (fetchedPins != null) {
+				if (page === 1) {
+					// Если это первая страница, заменяем все пины
+					userPins = fetchedPins;
+				} else {
+					// Если это не первая страница, добавляем новые уникальные пины
+					const uniqueNewPins = fetchedPins.filter(
+						(newPin) => !userPins.some((existingPin) => existingPin.id === newPin.id)
+					);
+					userPins = [...userPins, ...uniqueNewPins];
+				}
 
-			if (fetchedPins != null && fetchedPins.length < limit) {
-				hasMore = false;
+				// Обновляем флаг hasMore
+				hasMore = fetchedPins.length === limit;
 			}
 		} catch (err) {
 			errorPins = err instanceof Error ? err : new Error(`Failed to load ${tab} pins`);
 			console.error(errorPins);
 		} finally {
 			loadingPins = false;
-			console.log(`Load ${tab} pins finished, loading: ${loadingPins}, hasMore: ${hasMore}`);
+			console.log('✅ loadPins completed:', { userPins, hasMore, loadingPins });
 		}
 	}
 
@@ -139,28 +101,34 @@
 	}
 
 	async function switchTab(tab: 'created' | 'saved') {
-		if (loadingPins || activeTab === tab) return;
+		console.log('🔄 Starting switchTab:', { currentTab: activeTab, newTab: tab, loadingPins });
+		if (loadingPins || activeTab === tab) {
+			console.log('❌ Skipping switchTab');
+			return;
+		}
+
 		activeTab = tab;
 		userPins = [];
-		columns = Array.from({ length: columnCount }, () => []);
 		pageNumber = 1;
 		hasMore = true;
-		loadPins($page.params.username, activeTab, pageNumber);
-	}
+		isInitialized = false; // Сбрасываем флаг инициализации при смене вкладки
 
-	async function loadMorePins() {
-		if (loadingPins || !hasMore) return;
-		pageNumber++;
-		loadPins($page.params.username, activeTab, pageNumber);
+		console.log('📊 State reset in switchTab:', { activeTab, userPins, pageNumber, hasMore });
+
+		await loadPins($page.params.username, tab, pageNumber);
+		console.log('✅ switchTab completed');
 	}
 
 	async function checkSubscription() {
+		if (!profileData) return;
+		if (typeof window === 'undefined') return; // Добавляем проверку
+
 		loading = true;
 		error = null;
-		const token = localStorage.getItem('authToken');
+		const token = localStorage?.getItem('authToken');
 		if (!token) {
 			loading = false;
-			return; // Или перенаправить на страницу логина
+			return;
 		}
 
 		try {
@@ -174,7 +142,6 @@
 				const result = await response.json();
 				isSubscribed = result.subscribed;
 			} else if (response.status === 401) {
-				// Обработка неавторизованного доступа
 				console.error('Unauthorized');
 			} else {
 				error = 'Failed to check subscription status';
@@ -189,17 +156,20 @@
 	}
 
 	async function toggleSubscribe() {
+		if (!profileData) return;
+		if (typeof window === 'undefined') return; // Добавляем проверку
+
 		loading = true;
 		error = null;
-		const token = localStorage.getItem('authToken');
+		const token = localStorage?.getItem('authToken');
 		if (!token) {
 			loading = false;
-			return; // Или перенаправить на страницу логина
+			return;
 		}
 
 		const method = isSubscribed ? 'DELETE' : 'POST';
 		const endp = isSubscribed ? 'unsubscribe' : 'subscribe';
-		const endpoint = `http://localhost:8080/api/users/${profileData.id}/${endp}`; // POST используется и для подписки
+		const endpoint = `http://localhost:8080/api/users/${profileData.id}/${endp}`;
 
 		try {
 			const response = await fetch(endpoint, {
@@ -212,7 +182,6 @@
 			if (response.ok) {
 				isSubscribed = !isSubscribed;
 			} else if (response.status === 401) {
-				// Обработка неавторизованного доступа
 				console.error('Unauthorized');
 			} else {
 				error = `Failed to ${isSubscribed ? 'unsubscribe' : 'subscribe'}`;
@@ -226,48 +195,59 @@
 		}
 	}
 
-	$: {
+	// Реактивный блок для изменения username
+	$: if ($page.params.username) {
 		const username = $page.params.username;
-		if ($user.nickname) {
-			isOwnProfile = username === $user.nickname;
+		console.log('👤 Username changed:', {
+			username,
+			isInitialized,
+			currentProfileNickname: profileData?.nickname,
+			activeTab
+		});
+
+		// Инициализация только при первой загрузке или изменении username
+		if (!isInitialized || profileData?.nickname !== username) {
+			console.log('🔄 Initializing profile for:', username);
+
+			if ($user.nickname) {
+				isOwnProfile = username === $user.nickname;
+			}
+
+			// Загружаем профиль только если изменился пользователь
+			if (profileData?.nickname !== username) {
+				loadProfile(username).then(() => {
+					if (profileData) {
+						checkSubscription();
+					}
+				});
+			}
+
+			// Сбрасываем состояние и загружаем пины только при первой загрузке
+			// или при изменении пользователя
+			userPins = [];
+			pageNumber = 1;
+			hasMore = true;
+			loadPins(username, activeTab, pageNumber);
+
+			isInitialized = true;
 		}
-		loadProfile(username);
-		userPins = [];
-		columns = Array.from({ length: columnCount }, () => []);
-		pageNumber = 1;
-		hasMore = true;
-		newPinIds.clear();
-		loadPins(username, activeTab, pageNumber);
-		console.log('Reactive block executed for username:', username);
 	}
 
-	onMount(() => {
+	onMount(async () => {
 		if ($user.nickname && $page.params.username === $user.nickname) {
 			isOwnProfile = true;
 		}
 
+		// Сначала загружаем профиль
 		if (data && data.profile) {
 			profileData = data.profile;
 			console.log('Initial profile data:', profileData);
-		} else {
-			console.error('Не удалось получить данные профиля при монтировании');
-		}
 
-		checkSubscription();
-		updateColumnCount();
-		window.addEventListener('resize', updateColumnCount);
-
-		const handleScroll = () => {
-			if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 200) {
-				loadMorePins();
+			// Проверяем подписку только если есть данные профиля и мы в браузере
+			if (typeof window !== 'undefined') {
+				await checkSubscription();
 			}
-		};
-		window.addEventListener('scroll', handleScroll);
-
-		return () => {
-			window.removeEventListener('resize', updateColumnCount);
-			window.removeEventListener('scroll', handleScroll);
-		};
+		}
 	});
 </script>
 
@@ -512,118 +492,16 @@
 			</nav>
 		</div>
 
-		<div class="mx-auto mt-3 px-4 pb-10 pt-3 sm:px-6 md:py-10 lg:px-6 lg:py-8">
-			{#if loadingPins}
-				<p class="text-center text-neutral-400">Загрузка пинов...</p>
-			{:else if errorPins}
-				<p class="text-center text-red-500">Ошибка загрузки пинов: {errorPins.message}</p>
-			{:else if userPins.length === 0 && !loadingPins}
-				<p class="text-center text-neutral-400">У пользователя пока нет опубликованных пинов.</p>
-			{:else}
-				<div class={`grid grid-cols-${columnCount} gap-3`}>
-					{#each columns as column}
-						<div class="space-y-5">
-							{#each column as pin (pin.id)}
-								<a class="group relative block overflow-hidden" href="/pin/{pin.id}">
-									{#if pin.type == 'image'}
-										<img
-											class={`h-auto w-full rounded-xl bg-gray-100 object-cover dark:bg-neutral-800 ${
-												newPinIds.has(pin.id) ? 'fade-in' : ''
-											}`}
-											src={pin.path}
-											alt={pin.description || 'Изображение'}
-										/>
-									{:else if pin.type == 'video'}
-										<video
-											class={`h-auto w-full rounded-xl bg-gray-100 object-cover dark:bg-neutral-800 ${
-												newPinIds.has(pin.id) ? 'fade-in' : ''
-											}`}
-											src={pin.path}
-											loop
-											playsinline
-											autoplay
-											muted
-										></video>
-									{/if}
-
-									<div
-										class="absolute top-0 h-full w-full rounded-xl bg-black/50 px-2 pt-2 opacity-0 transition group-hover:opacity-100"
-									>
-										<div class="flex items-center justify-between">
-											<div class="flex items-center gap-x-3">
-												{#if pin.type == 'video'}
-													<div
-														class="dark:bg-gray/70 flex items-center gap-x-1 rounded-lg bg-gray-500/30 px-3 py-2 text-gray-800 dark:text-neutral-200"
-													>
-														<svg
-															xmlns="http://www.w3.org/2000/svg"
-															width="24"
-															height="24"
-															viewBox="0 0 24 24"
-															fill="none"
-															stroke="#ffffff"
-															stroke-width="2.5"
-															stroke-linecap="round"
-															stroke-linejoin="round"
-															class="lucide lucide-play-icon lucide-play size-3.5"
-															><polygon points="6 3 20 12 6 21 6 3" /></svg
-														>
-														<span class="text-sm font-semibold">{formatDuration(pin.duration)}</span
-														>
-													</div>
-												{/if}
-
-												{#if pin.type == 'gif'}
-													<div
-														class="dark:bg-gray/70 flex items-center gap-x-1 rounded-lg bg-gray-500/30 px-3 py-2 text-gray-800 dark:text-neutral-200"
-													>
-														<span class="text-sm font-semibold">GIF</span>
-													</div>
-												{/if}
-
-												{#if pin.ai}
-													<div
-														class="dark:bg-gray/70 flex items-center gap-x-1 rounded-lg bg-gray-500/30 px-3 py-2 text-gray-800 dark:text-neutral-200"
-													>
-														<span class="text-sm font-semibold">AI</span>
-													</div>
-												{/if}
-											</div>
-
-											<div
-												class="flex items-center gap-x-1 rounded-lg bg-white px-3 py-2 text-gray-800 dark:bg-[#ab1dff]/70 dark:text-neutral-200 dark:hover:bg-[#8500d3] dark:focus:bg-[#8500d3]"
-											>
-												<span class="text-sm font-semibold">Сохранить</span>
-											</div>
-										</div>
-									</div>
-								</a>
-
-								{#if pin.title}
-									<div class="flex flex-col gap-y-2 text-xs text-neutral-200 md:text-sm">
-										<p class="font-semibold">{pin.title}</p>
-									</div>
-								{/if}
-							{/each}
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</div>
+		<MasonryGrid
+			pins={userPins}
+			loading={loadingPins}
+			{hasMore}
+			onFetchMore={() => {
+				if (!loadingPins && hasMore) {
+					pageNumber++;
+					loadPins($page.params.username, activeTab, pageNumber);
+				}
+			}}
+		/>
 	</div>
 </section>
-
-<style>
-	.fade-in {
-		animation: fadeIn 0.3s ease-in-out;
-	}
-
-	@keyframes fadeIn {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
-	}
-</style>

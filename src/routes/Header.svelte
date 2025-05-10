@@ -3,6 +3,26 @@
 	import { onMount } from 'svelte';
 	import { user } from '../stores/user';
 
+	interface Tag {
+		title_en: string;
+		title_ru: string;
+	}
+
+	interface SearchResult {
+		id: number;
+		title: string;
+		description: string;
+		path: string;
+		type: string;
+		tags: Tag[];
+	}
+
+	let searchQuery = '';
+	let searchResults: SearchResult[] = [];
+	let suggestedTags: Tag[] = [];
+	let searchTimeout: number | undefined;
+	let isSearching = false;
+
 	let isAuthenticated = false;
 	let logoutButton: HTMLButtonElement | null = null;
 
@@ -42,6 +62,62 @@
 		isAuthenticated = false;
 		console.log('Выход из профиля выполнен');
 		window.location.href = '/';
+	}
+
+	async function handleSearch(event: Event) {
+		const query = (event.target as HTMLInputElement).value;
+		searchQuery = query;
+
+		if (searchTimeout) {
+			clearTimeout(searchTimeout);
+		}
+
+		if (!query.trim()) {
+			searchResults = [];
+			suggestedTags = [];
+			isSearching = false;
+			return;
+		}
+
+		searchTimeout = setTimeout(async () => {
+			isSearching = true;
+			try {
+				const response = await fetch(
+					`http://localhost:8080/api/search?q=${encodeURIComponent(query)}`
+				);
+				if (!response.ok) {
+					throw new Error('Search failed');
+				}
+				const data = await response.json();
+				console.log(data);
+
+				// Собираем уникальные теги из результатов поиска и фильтруем их
+				const uniqueTags = new Map<string, Tag>();
+				data.results.forEach((result: SearchResult) => {
+					result.tags.forEach((tag) => {
+						const titleRu = tag.title_ru || '';
+						const titleEn = tag.title_en || '';
+						// Сравниваем в нижнем регистре, но сохраняем оригинальное написание тега
+						if (
+							(titleRu.toLowerCase().includes(query.toLowerCase()) ||
+								titleEn.toLowerCase().includes(query.toLowerCase())) &&
+							!uniqueTags.has(titleRu || titleEn)
+						) {
+							uniqueTags.set(titleRu || titleEn, tag);
+						}
+					});
+				});
+
+				suggestedTags = Array.from(uniqueTags.values());
+				searchResults = data.results;
+			} catch (error) {
+				console.error('Search error:', error);
+				searchResults = [];
+				suggestedTags = [];
+			} finally {
+				isSearching = false;
+			}
+		}, 300);
 	}
 </script>
 
@@ -91,6 +167,8 @@
 					</svg>
 				</div>
 				<input
+					bind:value={searchQuery}
+					on:input={handleSearch}
 					id="searchInput"
 					type="text"
 					class="block w-full rounded-lg border-gray-700 bg-transparent py-2 pe-16 ps-10 text-sm focus:border-gray-600 focus:outline-none focus:ring-0 disabled:pointer-events-none disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-400 dark:placeholder:text-neutral-400 dark:focus:border-neutral-600"
@@ -411,128 +489,179 @@
 <!-- Dropdown окно для поиска -->
 <div
 	id="searchDropdown"
-	class="absolute left-1/2 top-20 z-50 hidden -translate-x-1/2 rounded-lg bg-white p-5 shadow-lg dark:bg-neutral-950"
+	class="min-w-2xl absolute left-1/2 top-20 z-50 hidden -translate-x-1/2 rounded-lg bg-white p-5 shadow-lg dark:bg-neutral-950"
 >
-	<div class="flex flex-col gap-y-5">
-		<div class="flex flex-col gap-y-3">
-			<h3 class="font-semibold text-neutral-200">Недавние поисковые запросы</h3>
-			<div class="flex flex-wrap gap-2">
-				<span
-					class="inline-flex items-center gap-x-1.5 rounded-full bg-blue-100 py-1.5 pe-2 ps-3 text-xs font-medium text-blue-800 dark:bg-blue-800/30 dark:text-blue-500"
+	{#if isSearching}
+		<div class="flex justify-center py-4">
+			<div
+				class="h-8 w-8 animate-spin rounded-full border-4 border-neutral-300 border-t-[#ab1dff]"
+			></div>
+		</div>
+	{:else if searchQuery}
+		<ul class="min-w-[300px] space-y-1">
+			<li class="rounded-xl font-semibold text-neutral-200 transition-colors hover:bg-neutral-900">
+				<a
+					class="flex h-full w-full items-center gap-x-2 px-3 py-2"
+					href="?q={encodeURIComponent(searchQuery)}"
+					data-sveltekit-preload-data="off"
 				>
-					Порна
-					<button
-						type="button"
-						class="inline-flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-blue-200 focus:bg-blue-200 focus:text-blue-500 focus:outline-none dark:hover:bg-blue-900"
+					{searchQuery}
+				</a>
+			</li>
+
+			{#if suggestedTags.length > 0}
+				{#each suggestedTags as tag}
+					<li
+						class="rounded-xl font-semibold text-neutral-200 transition-colors hover:bg-neutral-900"
 					>
-						<span class="sr-only">Remove badge</span>
-						<svg
-							class="size-3 shrink-0"
-							xmlns="http://www.w3.org/2000/svg"
-							width="24"
-							height="24"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
+						<a
+							class="flex h-full w-full items-center gap-x-2 px-3 py-2"
+							href="?tag={encodeURIComponent(tag.title_ru || tag.title_en)}"
+							data-sveltekit-preload-data="off"
 						>
-							<path d="M18 6 6 18"></path>
-							<path d="m6 6 12 12"></path>
-						</svg>
-					</button>
-				</span>
-
-				<span
-					class="inline-flex items-center gap-x-1.5 rounded-full bg-blue-100 py-1.5 pe-2 ps-3 text-xs font-medium text-blue-800 dark:bg-blue-800/30 dark:text-blue-500"
-				>
-					Многа порна
-					<button
-						type="button"
-						class="inline-flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-blue-200 focus:bg-blue-200 focus:text-blue-500 focus:outline-none dark:hover:bg-blue-900"
+							<svg
+								class="size-4 shrink-0 text-neutral-400"
+								xmlns="http://www.w3.org/2000/svg"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path
+									d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"
+								/>
+								<path d="M7 7h.01" />
+							</svg>
+							{tag.title_ru || tag.title_en}
+						</a>
+					</li>
+				{/each}
+			{/if}
+		</ul>
+	{:else}
+		<div class="flex flex-col gap-y-5">
+			<div class="flex flex-col gap-y-3">
+				<h3 class="font-semibold text-neutral-200">Недавние поисковые запросы</h3>
+				<div class="flex flex-wrap gap-2">
+					<span
+						class="inline-flex items-center gap-x-1.5 rounded-full bg-blue-100 py-1.5 pe-2 ps-3 text-xs font-medium text-blue-800 dark:bg-blue-800/30 dark:text-blue-500"
 					>
-						<span class="sr-only">Remove badge</span>
-						<svg
-							class="size-3 shrink-0"
-							xmlns="http://www.w3.org/2000/svg"
-							width="24"
-							height="24"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
+						Порна
+						<button
+							type="button"
+							class="inline-flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-blue-200 focus:bg-blue-200 focus:text-blue-500 focus:outline-none dark:hover:bg-blue-900"
 						>
-							<path d="M18 6 6 18"></path>
-							<path d="m6 6 12 12"></path>
-						</svg>
-					</button>
-				</span>
-			</div>
-		</div>
+							<span class="sr-only">Remove badge</span>
+							<svg
+								class="size-3 shrink-0"
+								xmlns="http://www.w3.org/2000/svg"
+								width="24"
+								height="24"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M18 6 6 18"></path>
+								<path d="m6 6 12 12"></path>
+							</svg>
+						</button>
+					</span>
 
-		<div class="flex flex-col gap-y-3">
-			<h3 class="font-semibold text-neutral-200">Рекомендовано для вас</h3>
-			<div class="flex flex-wrap gap-2">
-				<div class="flex h-32 w-64 items-center rounded-lg bg-neutral-900 text-neutral-200">
-					<div class="h-full w-[40%]">
-						<img
-							class="h-full w-full rounded-l-lg object-cover"
-							src="https://i.redd.it/fgafxnegf8he1.jpeg"
-						/>
-					</div>
-					<p class="px-4 font-medium">Альтушки</p>
-				</div>
-
-				<div class="flex h-32 w-64 items-center rounded-lg bg-neutral-900 text-neutral-200">
-					<div class="h-full w-[40%]">
-						<img
-							class="h-full w-full rounded-l-lg object-cover"
-							src="https://i.redd.it/l32snusutihe1.jpeg"
-						/>
-					</div>
-					<p class="px-4 font-medium">Большие груди</p>
-				</div>
-
-				<div class="flex h-32 w-64 items-center rounded-lg bg-neutral-900 text-neutral-200">
-					<div class="h-full w-[40%]">
-						<img
-							class="h-full w-full rounded-l-lg object-cover"
-							src="https://i.redd.it/2b7w97l91ehe1.jpeg"
-						/>
-					</div>
-					<p class="px-4 font-medium">Косплей</p>
-				</div>
-			</div>
-		</div>
-
-		<div class="flex flex-col gap-y-3">
-			<h3 class="font-semibold text-neutral-200">Популярно на Hornterest</h3>
-			<div class="flex flex-wrap gap-2">
-				<div class="flex h-32 w-64 items-center rounded-lg bg-neutral-900 text-neutral-200">
-					<div class="h-full w-[40%]">
-						<img
-							class="h-full w-full rounded-l-lg object-cover"
-							src="https://i.redd.it/iapl67kcvrhe1.jpeg"
-						/>
-					</div>
-					<p class="px-4 font-medium">Sweetie Fox</p>
-				</div>
-
-				<div class="flex h-32 w-64 items-center rounded-lg bg-neutral-900 text-neutral-200">
-					<div class="h-full w-[40%]">
-						<img
-							class="h-full w-full rounded-l-lg object-cover"
-							src="https://i.redd.it/214g2kz8zige1.jpeg"
-						/>
-					</div>
-					<p class="px-4 font-medium">Хентай</p>
+					<span
+						class="inline-flex items-center gap-x-1.5 rounded-full bg-blue-100 py-1.5 pe-2 ps-3 text-xs font-medium text-blue-800 dark:bg-blue-800/30 dark:text-blue-500"
+					>
+						Многа порна
+						<button
+							type="button"
+							class="inline-flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-blue-200 focus:bg-blue-200 focus:text-blue-500 focus:outline-none dark:hover:bg-blue-900"
+						>
+							<span class="sr-only">Remove badge</span>
+							<svg
+								class="size-3 shrink-0"
+								xmlns="http://www.w3.org/2000/svg"
+								width="24"
+								height="24"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M18 6 6 18"></path>
+								<path d="m6 6 12 12"></path>
+							</svg>
+						</button>
+					</span>
 				</div>
 			</div>
+
+			<div class="flex flex-col gap-y-3">
+				<h3 class="font-semibold text-neutral-200">Рекомендовано для вас</h3>
+				<div class="flex flex-wrap gap-2">
+					<div class="flex h-32 w-64 items-center rounded-lg bg-neutral-900 text-neutral-200">
+						<div class="h-full w-[40%]">
+							<img
+								class="h-full w-full rounded-l-lg object-cover"
+								src="https://i.redd.it/fgafxnegf8he1.jpeg"
+							/>
+						</div>
+						<p class="px-4 font-medium">Альтушки</p>
+					</div>
+
+					<div class="flex h-32 w-64 items-center rounded-lg bg-neutral-900 text-neutral-200">
+						<div class="h-full w-[40%]">
+							<img
+								class="h-full w-full rounded-l-lg object-cover"
+								src="https://i.redd.it/l32snusutihe1.jpeg"
+							/>
+						</div>
+						<p class="px-4 font-medium">Большие груди</p>
+					</div>
+
+					<div class="flex h-32 w-64 items-center rounded-lg bg-neutral-900 text-neutral-200">
+						<div class="h-full w-[40%]">
+							<img
+								class="h-full w-full rounded-l-lg object-cover"
+								src="https://i.redd.it/2b7w97l91ehe1.jpeg"
+							/>
+						</div>
+						<p class="px-4 font-medium">Косплей</p>
+					</div>
+				</div>
+			</div>
+
+			<div class="flex flex-col gap-y-3">
+				<h3 class="font-semibold text-neutral-200">Популярно на Hornterest</h3>
+				<div class="flex flex-wrap gap-2">
+					<div class="flex h-32 w-64 items-center rounded-lg bg-neutral-900 text-neutral-200">
+						<div class="h-full w-[40%]">
+							<img
+								class="h-full w-full rounded-l-lg object-cover"
+								src="https://i.redd.it/iapl67kcvrhe1.jpeg"
+							/>
+						</div>
+						<p class="px-4 font-medium">Sweetie Fox</p>
+					</div>
+
+					<div class="flex h-32 w-64 items-center rounded-lg bg-neutral-900 text-neutral-200">
+						<div class="h-full w-[40%]">
+							<img
+								class="h-full w-full rounded-l-lg object-cover"
+								src="https://i.redd.it/214g2kz8zige1.jpeg"
+							/>
+						</div>
+						<p class="px-4 font-medium">Хентай</p>
+					</div>
+				</div>
+			</div>
 		</div>
-	</div>
+	{/if}
 </div>
 
 <!-- ========== MOBILE HEADER ========== -->

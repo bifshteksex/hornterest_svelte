@@ -3,6 +3,8 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { formatDate, checkIfUserSaved } from '$lib/utils';
+	import MasonryGrid from '$lib/components/MasonryGrid.svelte';
+	import type { Pin } from '$lib/types/pin';
 
 	export let data;
 
@@ -39,6 +41,12 @@
 	let errorMessage = '';
 
 	let pageTitle: string = '';
+
+	let allPins: Pin[] = [];
+	let loadingPins = false;
+	let hasMorePins = true;
+	let pageNumber = 1;
+	const limit = 20;
 
 	onMount(async () => {
 		if (data && data.status === 302 && data.location === '/') {
@@ -133,10 +141,62 @@
 					}
 				});
 			}
+
+			await fetchPins();
 		} else {
 			console.error('Не удалось получить данные пина');
 		}
 	});
+
+	async function fetchPins() {
+		if (loadingPins || !hasMorePins) return;
+		loadingPins = true;
+
+		try {
+			console.log('🔄 Fetching pins, page:', pageNumber);
+			const response = await fetch(
+				`http://localhost:8080/api/pins?page=${pageNumber}&limit=${limit}`
+			);
+			if (!response.ok) {
+				throw new Error(`HTTP error! status: ${response.status}`);
+			}
+
+			const fetchedPins: Pin[] = await response.json();
+			console.log('📥 Fetched pins:', fetchedPins.length);
+
+			// Фильтруем текущий пин из результатов
+			const filteredPins = fetchedPins.filter((pin) => pin.id !== pinData?.id);
+			console.log('🎯 Filtered out current pin, remaining:', filteredPins.length);
+
+			if (filteredPins.length > 0) {
+				if (pageNumber === 1) {
+					allPins = filteredPins;
+				} else {
+					// Добавляем только уникальные пины
+					const uniqueNewPins = filteredPins.filter(
+						(newPin) => !allPins.some((existingPin) => existingPin.id === newPin.id)
+					);
+					allPins = [...allPins, ...uniqueNewPins];
+				}
+
+				// Обновляем флаг hasMorePins
+				hasMorePins = fetchedPins.length === limit;
+				pageNumber++;
+			} else {
+				hasMorePins = false;
+			}
+
+			console.log('✅ Updated pins:', {
+				total: allPins.length,
+				hasMore: hasMorePins,
+				nextPage: pageNumber
+			});
+		} catch (err) {
+			console.error('❌ Error loading pins:', err);
+		} finally {
+			loadingPins = false;
+		}
+	}
 
 	async function checkIfUserLiked() {
 		const token = localStorage.getItem('authToken');
@@ -780,165 +840,11 @@
 			</div>
 		{/if}
 
-		<div class="mt-5 grid grid-cols-2 gap-3 px-4 sm:grid-cols-6 md:px-0">
-			<div class="space-y-5">
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1540575861501-7cf05a4b125a?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1668906093328-99601a1aa584?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1567016526105-22da7c13161a?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-			</div>
-			<div class="space-y-5">
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1668584054131-d5721c515211?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1664574654529-b60630f33fdb?ixlib=rb-4.0.3&ixid=MnwxMjA3fDF8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-			</div>
-			<div class="space-y-5">
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1586232702178-f044c5f4d4b7?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1542125387-c71274d94f0a?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-			</div>
-			<div class="space-y-5">
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1668869713519-9bcbb0da7171?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1668584054035-f5ba7d426401?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-			</div>
-			<div class="space-y-5">
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1668869713519-9bcbb0da7171?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-				<img
-					class="h-auto w-full rounded-xl object-cover"
-					src="https://images.unsplash.com/photo-1668584054035-f5ba7d426401?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-					alt="Gallery Masonry Image"
-				/>
-			</div>
-			<div class="space-y-5">
-				<a class="group relative block overflow-hidden" href="#">
-					<img
-						class="h-auto w-full rounded-xl bg-gray-100 object-cover dark:bg-neutral-800"
-						src="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-						alt="Project"
-					/>
-					<div class="absolute end-1.5 top-1.5 opacity-0 transition group-hover:opacity-100">
-						<div
-							class="flex items-center gap-x-1 rounded-lg bg-white px-2 py-1 text-gray-800 dark:bg-[#ab1dff] dark:text-neutral-200"
-						>
-							<span class="text-sm font-semibold">Сохранить</span>
-						</div>
-					</div>
-
-					<div class="mt-3 flex items-center gap-x-3">
-						<div class="relative inline-block">
-							<img
-								class="inline-block size-8 rounded-full"
-								src="https://images.unsplash.com/photo-1568602471122-7832951cc4c5?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=facearea&facepad=2&w=300&h=300&q=80"
-								alt="Avatar"
-							/>
-							<span
-								class="absolute bottom-0 end-0 block size-1.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
-							></span>
-						</div>
-						<p class="text-sm text-neutral-200">James Hui</p>
-					</div>
-				</a>
-
-				<a class="group relative block overflow-hidden" href="#">
-					<img
-						class="h-auto w-full rounded-xl bg-gray-100 object-cover dark:bg-neutral-800"
-						src="https://images.unsplash.com/photo-1586232702178-f044c5f4d4b7?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=560&q=80"
-						alt="Project"
-					/>
-					<div class="absolute end-1.5 top-1.5 opacity-0 transition group-hover:opacity-100">
-						<div
-							class="flex items-center gap-x-1 rounded-lg bg-white px-2 py-1 text-gray-800 dark:bg-orange-600 dark:text-neutral-200"
-						>
-							<span class="text-sm font-semibold">Сохранить</span>
-						</div>
-					</div>
-
-					<div class="mt-3 flex items-center gap-x-3">
-						<div class="relative inline-block">
-							<img
-								class="inline-block size-8 rounded-full"
-								src="https://images.unsplash.com/photo-1568602471122-7832951cc4c5?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=facearea&facepad=2&w=300&h=300&q=80"
-								alt="Avatar"
-							/>
-							<span
-								class="absolute bottom-0 end-0 block size-1.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
-							></span>
-						</div>
-						<p class="text-sm text-neutral-200">James Hui</p>
-					</div>
-				</a>
-
-				<a class="group relative block overflow-hidden" href="#">
-					<img
-						class="h-auto w-full rounded-xl bg-gray-100 object-cover dark:bg-neutral-800"
-						src="https://images.unsplash.com/photo-1656618724305-a4257e46e847?q=80&w=320&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
-						alt="Project"
-					/>
-					<div class="absolute end-1.5 top-1.5 opacity-0 transition group-hover:opacity-100">
-						<div
-							class="flex items-center gap-x-1 rounded-lg bg-white px-2 py-1 text-gray-800 dark:bg-orange-600 dark:text-neutral-200"
-						>
-							<span class="text-sm font-semibold">Сохранить</span>
-						</div>
-					</div>
-
-					<div class="mt-3 flex items-center gap-x-3">
-						<div class="relative inline-block">
-							<img
-								class="inline-block size-8 rounded-full"
-								src="https://images.unsplash.com/photo-1568602471122-7832951cc4c5?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=facearea&facepad=2&w=300&h=300&q=80"
-								alt="Avatar"
-							/>
-							<span
-								class="absolute bottom-0 end-0 block size-1.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
-							></span>
-						</div>
-						<p class="text-sm text-neutral-200">James Hui</p>
-					</div>
-				</a>
-			</div>
-		</div>
+		<MasonryGrid
+			pins={allPins}
+			loading={loadingPins}
+			hasMore={hasMorePins}
+			onFetchMore={fetchPins}
+		/>
 	</div>
 </section>
